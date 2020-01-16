@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+  <head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>障害物を避けよう！</title>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.1.1/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.7.2/p5.min.js"></script>
+  </head>
+  <style>
+      body{
+          background-color:cadetblue;
+          font-size: 1.5rem;
+
+          text-align: center;
+      }
+      .canvas{
+          text-align: center;
+      }
+  </style>
+
+  <body>
+  <h1>炎を避けよう！</h1>  
+  <div>
+    <div>あなたのID: <span id="myid"></span></div>
+    <div>ルームID: <span id="room"></span></div>
+
+    <p class = rule>
+    <br>スマホを上下に傾けるとネズミが動くよ
+    <br>炎に当たるとHPが減ってしまうので気をつけてね
+    <br>HPがピンチの時は「SOSボタン」を押して「SOS」と言ってみよう
+    <br>流れてくるチーズをうまくキャッチできればHPが回復するよ～
+    <br>ちなみに！「SOS」は一度しか使えないよ！
+    </p>
+    
+    <br> 
+    <div><button id="mic" style="text-align: center; font-size: 25px; height: 100px; width: 100px; border-radius: 50px; background-color:coral;">SOS</button></div>
+    
+    <br>
+    <div id="result-div" class="large-text"></div>
+    <div class="canvas" id="canvas"></div> 
+  </div>
+  <script>
+    let room = "s1317227";
+    let socket = io.connect('https://qa.fujimura.com');    
+    let myid;
+    let speedX = 0;
+    let speedY = 0;
+    let rabbit;
+    let cheese;
+    let fire_x=800;
+    let fire2_x=1200;
+    let fire_y=200;
+    let fire2_y=-200;
+    let score = 0;
+    let HP_lenght = 600;
+    let SOS=0;
+    let cheese_x = 800;
+    
+    let  gameover_img = 0;
+
+    // マイク
+    const resultDiv = document.querySelector('#result-div');
+    const micDiv = document.querySelector('#mic');
+    let speakingtime = 0;
+      
+    // 音声認識機能(Chrome)
+    let rec = new webkitSpeechRecognition();
+    let stopped = true;
+    rec.continuous = true;
+    rec.interimResults = false;
+    rec.lang = 'ja-JP';
+
+      
+    micDiv.onclick = function () {
+    if (stopped == true) {
+      stopped = false;
+      resultDiv.innerHTML = "";
+      rec.start();
+    } else {
+      stopped = true;
+      rec.stop();
+    }
+  }
+
+  rec.onstart = function () { 
+    console.log('on start');
+    speakingtime = 0;
+  };
+
+  rec.onend = function () { 
+    console.log('on end');
+    if (stopped == false) {
+      setTimeout(function () {
+        rec.start();
+      },speakingtime);
+    }
+  };
+
+  rec.onresult = function (e) {
+    rec.stop();
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) {
+        console.log(e);
+        let text = e.results[i][0].transcript;
+        console.log(text);
+        speakingtime = text.length * 200;
+        console.log("estimate:", speakingtime, "ms");
+        speak(reply(text));
+        //resultDiv.innerHTML = text;
+          
+        if(text=="SOS"){
+            SOS=1;
+        }
+          
+      }
+    }
+  }
+  
+  function reply (text){ 
+        if (text == "SOS"){
+            if(SOS==1){
+                return "チーズはもうないよお！";
+            }else{
+                return "チーズを食べて元気出してえ！";
+            }
+        }else{
+            return "聞き取れないよお！";
+        }
+    }
+
+    // 発話機能をインスタンス化
+    let msg = new SpeechSynthesisUtterance();
+    let voices = window.speechSynthesis.getVoices();
+
+    function speak(text) {
+        // 以下オプション設定（日本語は効かないもよう。。）
+        msg.voice = voices[7]; // 7:Google 日本人 ja-JP ※他は英語のみ
+        msg.volume = 1.0; // 音量 min 0 ~ max 1
+        msg.rate = 1.0; // 速度 min 0 ~ max 10
+        msg.pitch = 1.0; // 音程 min 0 ~ max 2
+        msg.text = text; // 喋る内容
+        msg.lang = 'ja-JP'; // en-US or ja-JP
+        // msg.lang = 'en-US'; // en-US or ja-JP
+
+        // 発話実行
+      speechSynthesis.speak(msg);
+    }
+  
+    // 終了時の処理
+    msg.onend = function (event) {
+        console.log('喋った時間：' + event.elapsedTime + 'ms');
+    }
+
+    document.querySelector("#room").innerHTML = room;
+    socket.on('mylogin', function(data) {
+      myid = data;
+      socket.emit('join', room); // 受信room IDを指定
+      document.querySelector("#myid").innerHTML = myid;
+      //console.log("あなたのID: ", myid);
+    });
+            
+    socket.on('sensor', function(data) {
+      //console.log(data.g);
+      speedX = 0.05*parseInt(data.g);
+      speedY = 0.05*parseInt(data.b);
+    });
+    
+    let x=0;
+    let y=0;
+    let targetX = 0;
+    let targetY = 0;
+    
+    function preload(){
+      rabbit = loadImage("../rabbit.png");
+      pony = loadImage("../pony.png");
+      cat = loadImage("../cat.png");
+      cheese = loadImage("../cheese.png");
+      fire = loadImage("../fire.png");
+      fire2 = loadImage("../fire.png");
+      haikei = loadImage("../haikei.jpg");
+      bad = loadImage("../bad.png");
+      gameover = loadImage("../gameover.png");
+    }
+      
+
+
+    function setup() {
+        let canvas = createCanvas(800,800);
+        canvas.position = "center";
+        canvas.parent("canvas");
+        
+        background(200);
+        y = height/2;
+    }
+      
+    function draw(){
+        background(haikei);
+        
+        if(gameover_img == 1){
+           image(gameover,0,0,800,800);
+        }
+        
+        rect(150,30,HP_lenght,20);
+        noStroke();
+        
+
+        y = y + speedY*2;
+        if (y>height-200) y=height-200;
+        if (y<0) y=0;
+        let distance = Math.sqrt(Math.pow(150-fire_x,2)+Math.pow(y-fire_y,2));
+        let distance2 = Math.sqrt(Math.pow(150-fire2_x,2)+Math.pow(y-fire2_y,2));
+        //console.log(distance);
+        if(distance<70 || distance2<70){
+            background(bad);
+            score = 10;
+            HP_lenght -= score;
+            if(HP_lenght<=0){
+               HP_lenght = 0;
+               gameover_img = 1;
+            }
+        }
+        text("HP",50,65);
+        textSize(50);
+        fill(255);
+
+        
+        
+        fire_x -=5;
+        fire2_x -=8;
+        if (fire_x==-250 || fire2_x==-300){
+            fire_x=800;
+            fire2_x=800;
+            fire_y = random(0,700);
+            fire2_y = random(0,700);
+        }
+        image(fire,fire_x,fire_y,80,80);
+        image(fire2,fire2_x,fire2_y,80,80);
+        
+        if(SOS==1){
+            image(cheese,cheese_x,400,80,80);
+            cheese_x -=5;
+                
+            
+            let distance3 = Math.sqrt(Math.pow(150-cheese_x,2)+Math.pow(y-400,2));
+            if(distance3<70){
+                HP_lenght += 100;
+                if(HP_lenght=>600) HP_lenght=600;
+            }
+        }
+
+        image(rabbit,150,y,159,200);
+
+    }
+
+
+
+  </script> 
+</body>
+</html>
